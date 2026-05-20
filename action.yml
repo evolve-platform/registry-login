@@ -1,0 +1,21 @@
+name: Login to evolve-registry
+description: Exchange a GitHub Actions OIDC token for an evolve-registry token and write it to .npmrc
+
+inputs:
+  registry-url:
+    description: "Registry base URL (used as OIDC audience and token exchange host)"
+    default: "https://registry.evolve-platform.com"
+  npm-registry-host:
+    description: "Hostname written to .npmrc for npm auth"
+    default: "npm.registry.evolve-platform.com"
+  npmrc-path:
+    description: "Path to the .npmrc file to append the auth token to"
+    default: ".npmrc"
+
+outputs:
+  token:
+    description: "Exchanged evolve-registry token"
+
+runs:
+  using: node24
+  main: dist/index.js

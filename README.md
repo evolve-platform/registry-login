@@ -1,6 +1,6 @@
 # registry-login
 
-GitHub composite action that exchanges a GitHub Actions OIDC token for an
+GitHub Action that exchanges a GitHub Actions OIDC token for an
 evolve-registry token and writes it to `.npmrc`.
 
 ## Usage
@@ -29,3 +29,18 @@ steps:
 | Name    | Description                       |
 | ------- | --------------------------------- |
 | `token` | The exchanged evolve-registry token (masked in logs) |
+
+## Development
+
+This is a Node 24 TypeScript action. The runtime entry point is the bundled
+`dist/index.js`, which must be committed.
+
+```bash
+pnpm install
+pnpm test
+pnpm build   # rebuilds dist/index.js with tsdown
+```
+
+Commit `dist/` alongside source changes — GitHub Actions runs the bundle
+directly, no install step.
+
