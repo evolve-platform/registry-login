@@ -1,5 +1,5 @@
-import * as core from '@actions/core'
 import { appendFile } from 'node:fs/promises'
+import * as core from '@actions/core'
 
 export async function run(): Promise<void> {
   const registryUrl = core.getInput('registry-url', { required: true })

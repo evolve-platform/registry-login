@@ -1,9 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-
 import * as core from '@actions/core'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { run } from './main.js'
 
 const REGISTRY_URL = 'https://registry.example.test'
