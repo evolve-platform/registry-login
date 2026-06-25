@@ -17079,41 +17079,109 @@ var import_core = __toESM(require_core(), 1);
 
 //#endregion
 //#region src/main.ts
-async function run() {
+const MAX_RETRIES = 3;
+const BASE_DELAY_MS = 500;
+async function run(options = {}) {
 	const registryUrl = import_core.getInput("registry-url", { required: true });
 	const npmRegistryHost = import_core.getInput("npm-registry-host", { required: true });
 	const npmrcPath = import_core.getInput("npmrc-path", { required: true });
-	const oidcToken = await import_core.getIDToken(registryUrl);
-	const token = await exchangeToken(registryUrl, oidcToken);
+	const oidcToken = await getOidcToken(registryUrl);
+	const token = await exchangeToken(registryUrl, oidcToken, options.retry);
 	import_core.setSecret(token);
 	import_core.setOutput("token", token);
 	await appendFile(npmrcPath, `//${npmRegistryHost}/:_authToken=${token}\n`);
 }
-async function exchangeToken(registryUrl, oidcToken) {
-	const url = `${registryUrl.replace(/\/$/, "")}/api/v1/tokens/exchange`;
-	const response = await fetch(url, {
-		method: "POST",
-		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({
-			token: oidcToken,
-			provider: "github-actions"
-		})
-	});
-	if (!response.ok) {
-		const body = await response.text();
-		throw new Error(`Token exchange failed: ${response.status} ${response.statusText} — ${body}`);
+async function getOidcToken(audience) {
+	try {
+		return await import_core.getIDToken(audience);
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		if (/ACTIONS_ID_TOKEN_REQUEST/i.test(message)) throw new Error("Failed to obtain a GitHub OIDC token: the job is missing the `id-token: write` permission. Add the following to the workflow or job:\n  permissions:\n    id-token: write\n    contents: read", { cause: err });
+		throw new Error(`Failed to obtain a GitHub OIDC token for audience "${audience}".`, { cause: err });
 	}
-	const data = await response.json();
-	if (typeof data.token !== "string" || data.token.length === 0) throw new Error("Token exchange response did not contain a token");
-	return data.token;
+}
+/** Marks an error as a transient failure that is safe to retry. */
+function markRetryable(err) {
+	return Object.assign(err, { retryable: true });
+}
+function isRetryable(err) {
+	return err instanceof Error && err.retryable === true;
+}
+const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+async function exchangeToken(registryUrl, oidcToken, options = {}) {
+	const { retries = MAX_RETRIES, baseDelayMs = BASE_DELAY_MS, sleep = defaultSleep } = options;
+	for (let attempt = 0;; attempt++) try {
+		return await attemptExchange(registryUrl, oidcToken);
+	} catch (err) {
+		if (!isRetryable(err) || attempt >= retries) throw err;
+		const delay = baseDelayMs * 2 ** attempt;
+		const message = err instanceof Error ? err.message.split("\n")[0] : String(err);
+		import_core.warning(`Token exchange attempt ${attempt + 1}/${retries + 1} failed; retrying in ${delay}ms. (${message})`);
+		await sleep(delay);
+	}
+}
+async function attemptExchange(registryUrl, oidcToken) {
+	const url = `${registryUrl.replace(/\/$/, "")}/api/v1/tokens/exchange`;
+	let response;
+	try {
+		response = await fetch(url, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				token: oidcToken,
+				provider: "github-actions"
+			})
+		});
+	} catch (err) {
+		throw markRetryable(new Error(`Could not reach the registry token-exchange endpoint at ${url}. Verify the \`registry-url\` input is correct and that the registry is reachable from this runner (check DNS, firewall/egress rules, and TLS configuration).`, { cause: err }));
+	}
+	if (!response.ok) {
+		const body = (await response.text().catch(() => "")).trim();
+		const hint = hintForStatus(response.status, registryUrl);
+		const error$1 = new Error([
+			`Token exchange failed: ${response.status} ${response.statusText} (POST ${url})`,
+			body && `Response body: ${body}`,
+			hint
+		].filter(Boolean).join("\n"));
+		throw isRetryableStatus(response.status) ? markRetryable(error$1) : error$1;
+	}
+	let data;
+	try {
+		data = await response.json();
+	} catch (err) {
+		throw new Error(`Token exchange endpoint at ${url} returned a non-JSON response. Verify the \`registry-url\` input points at the registry API root.`, { cause: err });
+	}
+	const token = data?.token;
+	if (typeof token !== "string" || token.length === 0) throw new Error(`Token exchange response from ${url} did not contain a "token" field. Verify the \`registry-url\` input points at the expected registry and that its API contract matches this action.`);
+	return token;
+}
+function isRetryableStatus(status) {
+	return status === 429 || status >= 500;
+}
+function hintForStatus(status, registryUrl) {
+	if (status === 401 || status === 403) return `Hint: the registry rejected the OIDC token. Verify that ${registryUrl} is configured to trust this repository/org and the workflow's claims (repo, ref, environment).`;
+	if (status === 404) return `Hint: the token-exchange endpoint was not found. Verify the \`registry-url\` input (${registryUrl}) points at the registry API root, not a sub-path.`;
+	if (status === 429) return "Hint: the registry is rate-limiting this runner. Retry with backoff or contact the registry operator.";
+	if (status >= 500) return "Hint: the registry returned a server error. Retry shortly or check the registry status.";
+	return null;
 }
 
 //#endregion
 //#region src/index.ts
 run().catch((err) => {
-	const message = err instanceof Error ? err.message : String(err);
-	import_core.setFailed(message);
+	import_core.setFailed(formatError(err));
 });
+function formatError(err) {
+	if (!(err instanceof Error)) return String(err);
+	const lines = [err.message];
+	let cause = err.cause;
+	while (cause instanceof Error) {
+		const code = cause.code;
+		lines.push(code ? `  caused by: ${cause.message} [${code}]` : `  caused by: ${cause.message}`);
+		cause = cause.cause;
+	}
+	return lines.join("\n");
+}
 
 //#endregion
 //# sourceMappingURL=index.js.map
