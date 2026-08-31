@@ -22,7 +22,7 @@ steps:
 | ------------------- | ---------------------------------------- | ---------------------------------------------------------- |
 | `registry-url`      | `https://registry.evolve-platform.com`   | Registry base URL (OIDC audience + token exchange host)    |
 | `npm-registry-host` | `npm.registry.evolve-platform.com`       | Hostname written to `.npmrc` for npm auth                  |
-| `npmrc-path`        | `.npmrc`                                 | Path to the `.npmrc` file to append the auth token to      |
+| `npmrc-path`        | `~/.npmrc`                               | Where to append the auth token. A leading `~/` is expanded. |
 
 ## Outputs
 

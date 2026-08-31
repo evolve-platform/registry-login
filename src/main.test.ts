@@ -1,9 +1,9 @@
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import * as core from '@actions/core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { run } from './main.js'
+import { resolveNpmrcPath, run } from './main.js'
 
 const REGISTRY_URL = 'https://registry.example.test'
 const NPM_HOST = 'npm.registry.example.test'
@@ -218,5 +218,46 @@ describe('run', () => {
     )
 
     await expect(run()).rejects.toThrow(/did not contain a "token" field/)
+  })
+})
+
+describe('resolveNpmrcPath', () => {
+  /**
+   * The expansion exists because nothing upstream of this action can do it: bash
+   * does not expand `~` inside the double quotes an appending step needs, and no
+   * GitHub expression context exposes a home directory. A workflow that writes
+   * the obvious `~/.npmrc` otherwise gets a literal `~` directory and fails.
+   */
+  it('expands a leading ~/ to the home directory', () => {
+    expect(resolveNpmrcPath('~/.npmrc')).toBe(join(homedir(), '.npmrc'))
+    expect(resolveNpmrcPath('~/nested/.npmrc')).toBe(
+      join(homedir(), 'nested/.npmrc'),
+    )
+  })
+
+  it('expands a bare ~ to the home npmrc', () => {
+    expect(resolveNpmrcPath('~')).toBe(join(homedir(), '.npmrc'))
+  })
+
+  it('leaves an absolute path alone and does not warn', () => {
+    const warn = vi.spyOn(core, 'warning').mockImplementation(() => {})
+    expect(resolveNpmrcPath('/tmp/.npmrc')).toBe('/tmp/.npmrc')
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  /**
+   * Not an error: a caller may genuinely want a workspace npmrc. But it is how a
+   * live registry token ended up committed to evolve-storefront, so it says so.
+   */
+  it('warns when the path is relative, because that is inside the checkout', () => {
+    const warn = vi.spyOn(core, 'warning').mockImplementation(() => {})
+    expect(resolveNpmrcPath('.npmrc')).toBe('.npmrc')
+    expect(warn).toHaveBeenCalledOnce()
+    expect(warn.mock.calls[0]?.[0]).toContain('workspace')
+  })
+
+  it('does not treat a ~ inside the path as a home reference', () => {
+    vi.spyOn(core, 'warning').mockImplementation(() => {})
+    expect(resolveNpmrcPath('/tmp/a~b/.npmrc')).toBe('/tmp/a~b/.npmrc')
   })
 })
