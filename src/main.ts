@@ -1,4 +1,6 @@
 import { appendFile } from 'node:fs/promises'
+import { homedir } from 'node:os'
+import { isAbsolute, join } from 'node:path'
 import * as core from '@actions/core'
 
 const MAX_RETRIES = 3
@@ -28,7 +30,37 @@ export async function run(options: RunOptions = {}): Promise<void> {
   core.setSecret(token)
   core.setOutput('token', token)
 
-  await appendFile(npmrcPath, `//${npmRegistryHost}/:_authToken=${token}\n`)
+  await appendFile(
+    resolveNpmrcPath(npmrcPath),
+    `//${npmRegistryHost}/:_authToken=${token}\n`,
+  )
+}
+
+/**
+ * Expand a leading `~/`, which nothing else in a workflow can.
+ *
+ * The natural way to keep a credential out of a checkout is to point this at the
+ * home npmrc, and the natural way to write that is `~/.npmrc`. But neither bash
+ * (inside the double quotes an appending step needs) nor a GitHub expression
+ * expands it, and there is no context exposing a home directory — so a workflow
+ * passing the obvious value got a literal `~` directory and a failing step. The
+ * expansion has to happen here or nowhere.
+ */
+export function resolveNpmrcPath(path: string): string {
+  if (path === '~') {
+    return join(homedir(), '.npmrc')
+  }
+  if (path.startsWith('~/')) {
+    return join(homedir(), path.slice(2))
+  }
+  if (!isAbsolute(path)) {
+    core.warning(
+      `npmrc-path "${path}" is relative, so the auth token is written inside the ` +
+        'workspace. If a later step commits the working tree — a release action ' +
+        'usually does — the token lands in the repository. Prefer the default.',
+    )
+  }
+  return path
 }
 
 async function getOidcToken(audience: string): Promise<string> {

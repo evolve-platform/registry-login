@@ -1,5 +1,5 @@
 name: Login to evolve-registry
-description: Exchange a GitHub Actions OIDC token for an evolve-registry token and write it to .npmrc
+description: Exchange a GitHub Actions OIDC token for an evolve-registry token and write it to the runner's npmrc
 
 inputs:
   registry-url:
@@ -9,8 +9,12 @@ inputs:
     description: "Hostname written to .npmrc for npm auth"
     default: "npm.registry.evolve-platform.com"
   npmrc-path:
-    description: "Path to the .npmrc file to append the auth token to"
-    default: ".npmrc"
+    description: >-
+      Path to the .npmrc file to append the auth token to. A leading `~/` is
+      expanded. Defaults to the runner's home npmrc, which is outside the
+      checkout — a token written into the workspace is committed by any later
+      step that commits the working tree.
+    default: "~/.npmrc"
 
 outputs:
   token:
