@@ -6,6 +6,7 @@ export default defineConfig({
   platform: 'node',
   target: 'node24',
   clean: true,
-  sourcemap: true,
+  sourcemap: false,
   noExternal: [/.*/],
+  publint: true,
 })

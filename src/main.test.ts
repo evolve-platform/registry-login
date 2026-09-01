@@ -5,13 +5,23 @@ import * as core from '@actions/core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { resolveNpmrcPath, run } from './main.js'
 
+// `@actions/core` is ESM-only, so its export namespace is frozen and cannot be
+// spied on in place — the module has to be replaced wholesale.
+vi.mock('@actions/core', () => ({
+  getInput: vi.fn(),
+  getIDToken: vi.fn(),
+  setSecret: vi.fn(),
+  setOutput: vi.fn(),
+  warning: vi.fn(),
+}))
+
 const REGISTRY_URL = 'https://registry.example.test'
 const NPM_HOST = 'npm.registry.example.test'
 const OIDC_TOKEN = 'oidc-token-abc'
 const REGISTRY_TOKEN = 'registry-token-xyz'
 
 function mockInputs(npmrcPath: string) {
-  vi.spyOn(core, 'getInput').mockImplementation((name: string) => {
+  vi.mocked(core.getInput).mockImplementation((name: string) => {
     switch (name) {
       case 'registry-url':
         return REGISTRY_URL
@@ -40,10 +50,10 @@ describe('run', () => {
     tempDir = await mkdtemp(join(tmpdir(), 'registry-login-'))
     npmrcPath = join(tempDir, '.npmrc')
     mockInputs(npmrcPath)
-    vi.spyOn(core, 'getIDToken').mockResolvedValue(OIDC_TOKEN)
-    vi.spyOn(core, 'setSecret').mockImplementation(() => {})
-    vi.spyOn(core, 'setOutput').mockImplementation(() => {})
-    vi.spyOn(core, 'warning').mockImplementation(() => {})
+    vi.mocked(core.getIDToken).mockResolvedValue(OIDC_TOKEN)
+    vi.mocked(core.setSecret).mockImplementation(() => {})
+    vi.mocked(core.setOutput).mockImplementation(() => {})
+    vi.mocked(core.warning).mockImplementation(() => {})
   })
 
   // No-op sleep so retry tests don't actually wait on backoff delays.
@@ -51,6 +61,7 @@ describe('run', () => {
 
   afterEach(async () => {
     vi.restoreAllMocks()
+    vi.resetAllMocks()
     await rm(tempDir, { recursive: true, force: true })
   })
 
@@ -79,7 +90,7 @@ describe('run', () => {
   })
 
   it('points to the id-token permission when the OIDC env var is missing', async () => {
-    vi.spyOn(core, 'getIDToken').mockRejectedValue(
+    vi.mocked(core.getIDToken).mockRejectedValue(
       new Error('Unable to get ACTIONS_ID_TOKEN_REQUEST_URL env variable'),
     )
     vi.spyOn(globalThis, 'fetch')
@@ -88,7 +99,7 @@ describe('run', () => {
   })
 
   it('wraps other OIDC failures with the audience', async () => {
-    vi.spyOn(core, 'getIDToken').mockRejectedValue(new Error('OIDC boom'))
+    vi.mocked(core.getIDToken).mockRejectedValue(new Error('OIDC boom'))
     vi.spyOn(globalThis, 'fetch')
 
     const err = await run().catch((e: Error) => e)
@@ -222,6 +233,10 @@ describe('run', () => {
 })
 
 describe('resolveNpmrcPath', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
   /**
    * The expansion exists because nothing upstream of this action can do it: bash
    * does not expand `~` inside the double quotes an appending step needs, and no
@@ -240,7 +255,7 @@ describe('resolveNpmrcPath', () => {
   })
 
   it('leaves an absolute path alone and does not warn', () => {
-    const warn = vi.spyOn(core, 'warning').mockImplementation(() => {})
+    const warn = vi.mocked(core.warning).mockImplementation(() => {})
     expect(resolveNpmrcPath('/tmp/.npmrc')).toBe('/tmp/.npmrc')
     expect(warn).not.toHaveBeenCalled()
   })
@@ -250,14 +265,14 @@ describe('resolveNpmrcPath', () => {
    * live registry token ended up committed to evolve-storefront, so it says so.
    */
   it('warns when the path is relative, because that is inside the checkout', () => {
-    const warn = vi.spyOn(core, 'warning').mockImplementation(() => {})
+    const warn = vi.mocked(core.warning).mockImplementation(() => {})
     expect(resolveNpmrcPath('.npmrc')).toBe('.npmrc')
     expect(warn).toHaveBeenCalledOnce()
     expect(warn.mock.calls[0]?.[0]).toContain('workspace')
   })
 
   it('does not treat a ~ inside the path as a home reference', () => {
-    vi.spyOn(core, 'warning').mockImplementation(() => {})
+    vi.mocked(core.warning).mockImplementation(() => {})
     expect(resolveNpmrcPath('/tmp/a~b/.npmrc')).toBe('/tmp/a~b/.npmrc')
   })
 })
